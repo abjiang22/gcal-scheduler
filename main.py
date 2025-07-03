@@ -14,6 +14,7 @@ from pysat.card import CardEnc
 import yaml
 import uuid
 import os
+from collections import defaultdict
 
 def main():
     parser = argparse.ArgumentParser(description='gcal-scheduler CLI')
@@ -67,20 +68,16 @@ def main():
     parser_schedule = subparsers.add_parser('schedule-meetings', help='Schedule meetings for the given week')
     parser_schedule.add_argument('week_start', type=str, help='Week start (YYYY-MM-DD or ISO)')
     parser_schedule.add_argument('week_end', type=str, help='Week end (YYYY-MM-DD or ISO)')
-    parser_schedule.add_argument('--save-calendar', nargs='?', const=True, help='Calendar ID to save the meeting schedule to (if no value, use config)')
+    parser_schedule.add_argument('--save-calendar', type=str, metavar='CALENDAR_NAME', help='Name of the calendar to create and save the meeting schedule to')
 
     # Load config command
     parser_load_config = subparsers.add_parser('load-config', help='Load members, meetings, and potential times calendar from a YAML config file')
     parser_load_config.add_argument('config_file', type=str, help='YAML config file path')
 
     # New command
-    parser_set_save_cal = subparsers.add_parser('set-save-calendar', help='Set the save calendar ID for scheduled meetings')
-    parser_set_save_cal.add_argument('calendar_id', type=str, help='Calendar ID')
-
-    # New command
-    parser_add_constraint = subparsers.add_parser('add-constraint', help='Add a fixed constraint that mandates a member must attend a meeting')
+    parser_add_constraint = subparsers.add_parser('add-constraint', help='Add a fixed constraint that mandates members must attend a meeting')
     parser_add_constraint.add_argument('meeting', type=str, help='Meeting name')
-    parser_add_constraint.add_argument('member', type=str, help='Member name')
+    parser_add_constraint.add_argument('members', nargs='+', help='Member name(s)')
 
     args = parser.parse_args()
 
@@ -198,7 +195,8 @@ def main():
                     'slot_id': f'slot{slot_index}',
                     'start_time': slot_start,
                     'end_time': slot_end,
-                    'location': window.get('location')  # propagate location
+                    'location': window.get('location'),
+                    'window_id': i  # Track which window/event this slot comes from
                 })
                 slot_index += 1
         print(f"Total possible slots: {len(all_possible_slots)}")
@@ -246,25 +244,27 @@ def main():
             cnf = CardEnc.equals(lits=vars_for_meeting, bound=1, vpool=vpool)
             for clause in cnf.clauses:
                 wcnf.append(clause)
-        # 1b. Fixed constraints (hard): for each, require the member to be available for the meeting in the chosen slot
+        # 1b. Fixed constraints (hard): for each, require the member(s) to be available for the meeting in the chosen slot
         for constraint in fixed_constraints:
             meeting_name = constraint['meeting']
-            member_name = constraint['member']
-            # Find meeting and member IDs
+            members_list = constraint['members']
             meeting_obj = next((m for m in meetings if m['name'] == meeting_name), None)
-            member_obj = next((m for m in members if m['name'] == member_name), None)
-            if not meeting_obj or not member_obj:
-                print(f"Warning: Could not find meeting/member for constraint: {constraint}")
+            if not meeting_obj:
+                print(f"Warning: Could not find meeting for constraint: {constraint}")
                 continue
             meeting_id = meeting_obj['id']
-            member_id = member_obj['id']
-            # For all slots, only allow scheduling if member is available
-            for slot in all_possible_slots:
-                slot_id = slot['slot_id']
-                available = slot_availability[slot_id]
-                v = var_map[(meeting_id, slot_id)]
-                if member_id not in available:
-                    wcnf.append([-v])  # Hard: cannot schedule meeting in this slot if member is not available
+            for member_name in members_list:
+                member_obj = next((m for m in members if m['name'] == member_name), None)
+                if not member_obj:
+                    print(f"Warning: Could not find member for constraint: {constraint}")
+                    continue
+                member_id = member_obj['id']
+                for slot in all_possible_slots:
+                    slot_id = slot['slot_id']
+                    available = slot_availability[slot_id]
+                    v = var_map[(meeting_id, slot_id)]
+                    if member_id not in available:
+                        wcnf.append([-v])  # Hard: cannot schedule meeting in this slot if member is not available
         # 2. Only one meeting per slot (hard)
         for slot in all_possible_slots:
             slot_id = slot['slot_id']
@@ -273,6 +273,24 @@ def main():
                 cnf = CardEnc.atmost(lits=meetings_in_slot, bound=1, vpool=vpool)
                 for clause in cnf.clauses:
                     wcnf.append(clause)
+        # 2b. No two meetings in overlapping slots from the same window/event (hard)
+        # Group slots by window_id
+        slots_by_window = defaultdict(list)
+        for slot in all_possible_slots:
+            slots_by_window[slot['window_id']].append(slot)
+        for window_slots in slots_by_window.values():
+            for i, slot1 in enumerate(window_slots):
+                for j, slot2 in enumerate(window_slots):
+                    if j <= i:
+                        continue
+                    # If slots overlap
+                    if overlaps(slot1['start_time'], slot1['end_time'], slot2['start_time'], slot2['end_time']):
+                        for meeting1 in meetings:
+                            for meeting2 in meetings:
+                                v1 = var_map[(meeting1['id'], slot1['slot_id'])]
+                                v2 = var_map[(meeting2['id'], slot2['slot_id'])]
+                                if v1 != v2:
+                                    wcnf.append([-v1, -v2])
         # 3. Meetings only scheduled in slots where all required members are available (soft)
         for meeting in meetings:
             required_members = meeting['members']
@@ -285,28 +303,7 @@ def main():
                         # Soft: penalize if this member can't attend
                         wcnf.append([-v], weight=1)
         # 4. No double-booking for any member (soft, large penalty)
-        for i, slot1 in enumerate(all_possible_slots):
-            slot1_start = slot1['start_time']
-            slot1_end = slot1['end_time']
-            for j, slot2 in enumerate(all_possible_slots):
-                if j <= i:
-                    continue
-                slot2_start = slot2['start_time']
-                slot2_end = slot2['end_time']
-                # If slots overlap
-                if overlaps(slot1_start, slot1_end, slot2_start, slot2_end):
-                    for member in members:
-                        member_id = member['id']
-                        for meeting1 in meetings:
-                            if member_id in meeting1['members']:
-                                for meeting2 in meetings:
-                                    if meeting2['id'] == meeting1['id']:
-                                        continue
-                                    if member_id in meeting2['members']:
-                                        v1 = var_map[(meeting1['id'], slot1['slot_id'])]
-                                        v2 = var_map[(meeting2['id'], slot2['slot_id'])]
-                                        # Soft: penalize double-booking
-                                        wcnf.append([-v1, -v2], weight=100)
+        # (Removed: no longer penalize double-booking)
         # Solve
         print("Solving with MaxSAT...")
         with RC2(wcnf) as rc2:
@@ -323,6 +320,19 @@ def main():
                         missing = [member_lookup[mid]['name'] for mid in meeting['members'] if mid not in slot_availability[slot_id]]
                         print(f"Meeting '{meeting['name']}' scheduled at {slot['start_time']} to {slot['end_time']} for members: {', '.join(member_names)}" + (f" (Missing: {', '.join(missing)})" if missing else ""))
                         scheduled.append({'meeting': meeting, 'slot': slot, 'missing': missing})
+                # Attendance percentage calculation
+                total_assignments = 0
+                total_present = 0
+                for item in scheduled:
+                    meeting = item['meeting']
+                    missing = item['missing']
+                    total_assignments += len(meeting['members'])
+                    total_present += len(meeting['members']) - len(missing)
+                if total_assignments > 0:
+                    attendance_pct = 100.0 * total_present / total_assignments
+                    print(f"\nAttendance percentage: {total_present} / {total_assignments} = {attendance_pct:.2f}%")
+                else:
+                    print("\nAttendance percentage: N/A (no meetings)")
                 # Display conflicts
                 print("\nConflicts:")
                 # 1. Member absences
@@ -345,27 +355,24 @@ def main():
                     for j, b in enumerate(member_slot_meeting):
                         if j <= i:
                             continue
+                        if a['meeting']['id'] == b['meeting']['id']:
+                            continue  # skip same meeting
                         if a['member_id'] == b['member_id']:
                             if overlaps(a['slot']['start_time'], a['slot']['end_time'], b['slot']['start_time'], b['slot']['end_time']):
                                 print(f"{a['member_name']} is double-booked: {a['meeting']['name']} and {b['meeting']['name']} overlap at {a['slot']['start_time']} to {a['slot']['end_time']}")
                 # Save schedule to user-specified Google Calendar if requested
-                cal_id = args.save_calendar
-                if cal_id is True:
-                    # --save-calendar was provided with no value, use config
-                    try:
-                        with open('data/config.json', 'r') as f:
-                            config_data = json.load(f)
-                            cal_id = config_data.get('save_calendar_id')
-                    except Exception as e:
-                        cal_id = None
-                if cal_id and cal_id is not True:
-                    print(f"\nSaving schedule to calendar: {cal_id} ...")
+                if args.save_calendar:
+                    calendar_name = args.save_calendar
+                    print(f"\nCreating new calendar and saving schedule to: {calendar_name} ...")
+                    cal_id = get_or_create_calendar(service, calendar_name)
                     # Build double-booking info for each member/slot
                     double_booked = set()
                     for i, a in enumerate(member_slot_meeting):
                         for j, b in enumerate(member_slot_meeting):
                             if j <= i:
                                 continue
+                            if a['meeting']['id'] == b['meeting']['id']:
+                                continue  # skip same meeting
                             if a['member_id'] == b['member_id']:
                                 if overlaps(a['slot']['start_time'], a['slot']['end_time'], b['slot']['start_time'], b['slot']['end_time']):
                                     double_booked.add((a['member_id'], a['slot']['start_time'], a['slot']['end_time']))
@@ -386,7 +393,7 @@ def main():
                             create_event(service, cal_id, meeting['name'], slot['start_time'], slot['end_time'], description=description, location=location)
                         except Exception as e:
                             print(f"Failed to create event for {meeting['name']} at {slot['start_time']}: {e}")
-                    print(f"Schedule saved to calendar: {cal_id}")
+                    print(f"Schedule saved to calendar: {calendar_name}")
             else:
                 print("No schedule possible (should not happen unless no slots exist).")
     elif args.command == 'load-config':
@@ -417,25 +424,23 @@ def main():
         if 'save_calendar_id' in config:
             config_json['save_calendar_id'] = config['save_calendar_id']
         # Fixed constraints
+        constraints_path = 'data/constraints.json'
+        fixed_constraints = []
         if 'fixed_constraints' in config:
-            with open('data/constraints.json', 'w') as f:
-                json.dump(config['fixed_constraints'], f, indent=2)
+            for c in config['fixed_constraints']:
+                if 'members' in c:
+                    members = c['members']
+                elif 'member' in c:
+                    members = [c['member']]
+                else:
+                    continue
+                fixed_constraints.append({'meeting': c['meeting'], 'members': members})
+        # Always overwrite constraints.json, even if empty
+        with open(constraints_path, 'w') as f:
+            json.dump(fixed_constraints, f, indent=2)
         with open('data/config.json', 'w') as f:
             json.dump(config_json, f, indent=2)
         print('Configuration loaded successfully.')
-    elif args.command == 'set-save-calendar':
-        # Set or update save_calendar_id in config.json
-        config_path = 'data/config.json'
-        os.makedirs(os.path.dirname(config_path), exist_ok=True)
-        if os.path.exists(config_path):
-            with open(config_path, 'r') as f:
-                config = json.load(f)
-        else:
-            config = {}
-        config['save_calendar_id'] = args.calendar_id
-        with open(config_path, 'w') as f:
-            json.dump(config, f, indent=2)
-        print(f"Set save calendar ID: {args.calendar_id}")
     elif args.command == 'add-constraint':
         # Add a fixed constraint to data/constraints.json
         constraints_path = 'data/constraints.json'
@@ -444,10 +449,10 @@ def main():
                 constraints = json.load(f)
         else:
             constraints = []
-        constraints.append({'meeting': args.meeting, 'member': args.member})
+        constraints.append({'meeting': args.meeting, 'members': args.members})
         with open(constraints_path, 'w') as f:
             json.dump(constraints, f, indent=2)
-        print(f"Added constraint: {args.member} must attend {args.meeting}")
+        print(f"Added constraint: {args.members} must attend {args.meeting}")
     else:
         parser.print_help()
 

@@ -5,6 +5,7 @@ from models import Member, Meeting
 import pytz
 from dateutil.parser import parse as parse_dt
 from datetime import timedelta
+from dateutil.tz import tzutc
 
 data_dir = 'data'
 members_file = os.path.join(data_dir, 'members.json')
@@ -169,6 +170,15 @@ def overlaps(slot_start, slot_end, conflict_start, conflict_end):
     e1 = parse_dt(slot_end)
     s2 = parse_dt(conflict_start)
     e2 = parse_dt(conflict_end)
+    # Make all datetimes timezone-aware (UTC) if naive
+    if s1.tzinfo is None:
+        s1 = s1.replace(tzinfo=tzutc())
+    if e1.tzinfo is None:
+        e1 = e1.replace(tzinfo=tzutc())
+    if s2.tzinfo is None:
+        s2 = s2.replace(tzinfo=tzutc())
+    if e2.tzinfo is None:
+        e2 = e2.replace(tzinfo=tzutc())
     return max(s1, s2) < min(e1, e2)
 
 def build_availability_matrix(members, slots, conflicts_by_member):

@@ -8,10 +8,11 @@ A local Python CLI application to help schedule meetings across a small organiza
 - Fetches conflicts for each member
 - Allows creation of meetings and assignment of members
 - Supports potential meeting times from a dedicated calendar
-- Uses MaxSAT solver to find the best possible schedule (minimizing absences and double-bookings)
+- Uses MaxSAT solver to find the best possible schedule (minimizing absences)
 - Supports fixed constraints (mandate a member must attend a meeting)
-- Saves the final schedule to a specified Google Calendar (with location and conflict info)
+- Saves the final schedule to a **newly created** Google Calendar (with location and conflict info) using a name you provide
 - All configuration can be done via YAML or CLI
+- **No two meetings can be scheduled in overlapping slots within the same potential time window/event.** Overlapping meetings are only allowed if the slots come from different potential time windows (e.g., two separate events for the same time in the potential times calendar).
 
 ## Setup
 
@@ -42,7 +43,6 @@ members:
     calendar_id: bob_calendar_id@group.calendar.google.com
 
 potential_times_calendar_id: org_potential_times@group.calendar.google.com
-save_calendar_id: your_calendar_id@group.calendar.google.com
 
 meetings:
   - name: Project Kickoff
@@ -66,10 +66,6 @@ python main.py load-config config.yaml
   ```bash
   python main.py set-potential-times-calendar <CALENDAR_ID>
   ```
-- Set the save calendar:
-  ```bash
-  python main.py set-save-calendar <CALENDAR_ID>
-  ```
 - Add a fixed constraint:
   ```bash
   python main.py add-constraint "Meeting Name" "Member Name"
@@ -83,10 +79,9 @@ python main.py load-config config.yaml
    ```
 2. **Run the scheduler:**
    ```bash
-   python main.py schedule-meetings <WEEK_START> <WEEK_END> [--save-calendar [CALENDAR_ID]]
+   python main.py schedule-meetings <WEEK_START> <WEEK_END> --save-calendar "My Weekly Schedule"
    ```
-   - If you use `--save-calendar` with no value, it uses the value from your config.
-   - If you use `--save-calendar <CALENDAR_ID>`, it saves to that calendar.
+   - The `--save-calendar` flag now **requires a calendar name**. The tool will create a new Google Calendar with this name and save the schedule to it.
    - If you omit the flag, the schedule is only printed.
 
 3. **Check your Google Calendar for the scheduled events.**
@@ -102,15 +97,15 @@ python main.py load-config config.yaml
 - **Fixed constraints:** Mandate that a specific member must attend a specific meeting (via YAML or CLI).
 - **Location support:** If a potential meeting time has a location, it is preserved in the scheduled event.
 - **Conflict reporting:** The schedule output lists all absences and double-bookings.
+- **No overlapping meetings in the same window:** The scheduler enforces that no two meetings can be scheduled in overlapping slots within the same potential time window/event. Overlapping meetings are only possible if the slots come from different windows/events in the potential times calendar.
 
 ## Example CLI Commands
 ```bash
 python main.py add-member "Alice" alice_calendar_id@group.calendar.google.com
 python main.py add-meeting "Project Kickoff" <MEMBER_ID_1> <MEMBER_ID_2>
 python main.py set-potential-times-calendar <CALENDAR_ID>
-python main.py set-save-calendar <CALENDAR_ID>
 python main.py add-constraint "Project Kickoff" "Alice"
-python main.py schedule-meetings 2025-07-02 2025-07-05 --save-calendar
+python main.py schedule-meetings 2025-07-02 2025-07-05 --save-calendar "My Weekly Schedule"
 ```
 
 ## Notes
