@@ -50,9 +50,21 @@ meetings:
   - name: Design Review
     members: [Bob]
 
-fixed_constraints:
+key_attendees:
   - meeting: Project Kickoff
     member: Alice
+
+key_meetings:
+  - Project Kickoff
+
+active_meetings:
+  - Project Kickoff
+  - Design Review
+
+penalties:
+  key_attendee_absence: 100
+  required_member_absence: 1
+  key_meeting_absence: 5
 ```
 
 ### **Load YAML Config**
@@ -70,6 +82,19 @@ python main.py load-config config.yaml
   ```bash
   python main.py add-constraint "Meeting Name" "Member Name"
   ```
+- Set which meetings to schedule (active meetings):
+  ```bash
+  python main.py set-active-meetings "Meeting 1" "Meeting 2" ...
+  ```
+  Only meetings listed here will be scheduled. If not set, all meetings are considered.
+- Run the scheduler with custom penalties:
+  ```bash
+  python main.py schedule-meetings <WEEK_START> <WEEK_END> --save-calendar "My Weekly Schedule" \
+    --penalty-key-attendee-absence 100 \
+    --penalty-required-member-absence 1 \
+    --penalty-key-meeting-absence 5
+  ```
+  CLI flags override config.yaml values for that run.
 
 ## Scheduling Meetings
 
@@ -94,10 +119,12 @@ python main.py load-config config.yaml
   ```
 
 ## Advanced Features
-- **Fixed constraints:** Mandate that a specific member must attend a specific meeting (via YAML or CLI).
+- **Key attendees:** For each meeting, you can specify one or more key attendees (e.g., meeting leader). The scheduler will strongly prefer (but not require) that these people attend their meeting. If a key attendee cannot attend, the model is penalized by 100 for each absence.
+- **Key meetings:** You can specify a list of meetings as `key_meetings`. For each member who misses a key meeting, the model is penalized by 5. This allows you to prioritize certain meetings for higher attendance.
 - **Location support:** If a potential meeting time has a location, it is preserved in the scheduled event.
 - **Conflict reporting:** The schedule output lists all absences and double-bookings.
 - **No overlapping meetings in the same window:** The scheduler enforces that no two meetings can be scheduled in overlapping slots within the same potential time window/event. Overlapping meetings are only possible if the slots come from different windows/events in the potential times calendar.
+- **Penalty configuration:** You can set penalties for key attendee absences, required member absences, and key meeting absences in your config.yaml under a `penalties` section, or override them for a single run using CLI flags. See above for details.
 
 ## Example CLI Commands
 ```bash
@@ -105,12 +132,6 @@ python main.py add-member "Alice" alice_calendar_id@group.calendar.google.com
 python main.py add-meeting "Project Kickoff" <MEMBER_ID_1> <MEMBER_ID_2>
 python main.py set-potential-times-calendar <CALENDAR_ID>
 python main.py add-constraint "Project Kickoff" "Alice"
+python main.py set-active-meetings "Project Kickoff" "Design Review"
 python main.py schedule-meetings 2025-07-02 2025-07-05 --save-calendar "My Weekly Schedule"
 ```
-
-## Notes
-- All meetings are assumed to be 1 hour long.
-- The tool is designed for small to medium organizations (tens of meetings/people per week).
-
----
-If you have questions or want to extend the tool, see the code comments or open an issue!
