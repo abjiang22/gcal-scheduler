@@ -5,3 +5,4 @@ pytz
 python-dateutil
 python-sat
 pyyaml
+streamlit
