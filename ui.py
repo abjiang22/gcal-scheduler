@@ -5,7 +5,7 @@ from calendar_service import authenticate_google
 import datetime
 import subprocess
 import pandas as pd
-from streamlit import column_config
+import sys
 
 CONFIG_PATH = "config.yaml"
 
@@ -66,7 +66,6 @@ st.markdown("""
 st.markdown('''
 <style>
 .block-container > div { margin-bottom: 0.5rem; }
-.key-attendees-row { margin-bottom: 0.2rem !important; padding-bottom: 0 !important; }
 </style>
 ''', unsafe_allow_html=True)
 
@@ -118,10 +117,6 @@ with st.expander("Member Details", expanded=True):
     if "members" not in st.session_state:
         st.session_state["members"] = config.get("members", []).copy()
 
-    # Initialize members change tracking
-    if "members_changed" not in st.session_state:
-        st.session_state["members_changed"] = False
-
     members_df = pd.DataFrame(st.session_state["members"])
     edited_members = st.data_editor(
         members_df,
@@ -141,9 +136,22 @@ with st.expander("Member Details", expanded=True):
         new_members_data = edited_members.to_dict("records")
         if new_members_data != st.session_state["members"]:
             st.session_state["members"] = new_members_data
-            st.session_state["members_changed"] = True
+            # Force a rerun to ensure validation runs with updated data
+            st.rerun()
 
+    # Check for duplicate member names in real-time (check ALL members with names, regardless of calendar_id)
+    all_members_with_names = [m for m in st.session_state["members"] if m["name"]]
+    member_names = [m["name"] for m in all_members_with_names]
+    duplicate_member_names = [name for name in set(member_names) if member_names.count(name) > 1]
+    
+    if duplicate_member_names:
+        st.error(f"❌ Duplicate member names detected: {', '.join(duplicate_member_names)}. Please fix before saving.")
+        # Don't show save button or unsaved changes warning if duplicates exist
+        st.stop()
+    
+    # Filter for complete members (with both name and calendar_id) for other operations
     current_members = [m for m in st.session_state["members"] if m["name"] and m["calendar_id"]]
+    
     if current_members != st.session_state["original_values"]["members"]:
         st.session_state["unsaved_changes"]["members"] = True
         st.warning("⚠️ You have unsaved changes in Members")
@@ -152,6 +160,21 @@ with st.expander("Member Details", expanded=True):
 
     if st.button("💾 Save Members", key="save_members"):
         try:
+            # Check for duplicate member names
+            member_names = [m["name"] for m in current_members if m["name"]]
+            duplicate_names = [name for name in set(member_names) if member_names.count(name) > 1]
+            
+            if duplicate_names:
+                st.error(f"❌ Duplicate member names found: {', '.join(duplicate_names)}. Please ensure all member names are unique.")
+                st.stop()
+            
+            # Get the set of current member names
+            current_member_names = {m["name"] for m in current_members}
+            original_member_names = {m["name"] for m in st.session_state["original_values"]["members"]}
+            
+            # Find deleted members
+            deleted_members = original_member_names - current_member_names
+            
             # Handle cascading updates when member names change
             for old_member in st.session_state["original_values"]["members"]:
                 old_name = old_member["name"]
@@ -168,6 +191,21 @@ with st.expander("Member Details", expanded=True):
                                     ka["members"] = [new_name if m == old_name else m for m in ka["members"]]
                             break
             
+            # Handle DELETE cascades for removed members
+            for deleted_member in deleted_members:
+                # Remove from all meetings
+                for meeting in config.get("meetings", []):
+                    if deleted_member in meeting.get("members", []):
+                        meeting["members"] = [m for m in meeting.get("members", []) if m != deleted_member]
+                
+                # Remove from all key attendees
+                for ka in config.get("key_attendees", []):
+                    if deleted_member in ka.get("members", []):
+                        ka["members"] = [m for m in ka.get("members", []) if m != deleted_member]
+                
+                # Remove key attendees that have no members left
+                config["key_attendees"] = [ka for ka in config.get("key_attendees", []) if ka.get("members", [])]
+            
             config["members"] = current_members
             with open(CONFIG_PATH, "w") as f:
                 yaml.safe_dump(config, f)
@@ -177,6 +215,9 @@ with st.expander("Member Details", expanded=True):
                 updated_config = yaml.safe_load(f)
                 if updated_config is None:
                     updated_config = {}
+            
+            # Update the global config variable to reflect the changes
+            config.update(updated_config)
             
             st.session_state["original_values"]["members"] = current_members.copy()
             st.session_state["original_values"]["meetings"] = updated_config.get("meetings", []).copy()
@@ -246,6 +287,16 @@ with st.expander("Meeting Details", expanded=True):
 
     # Check for changes in meetings - compare against actual config file data
     current_meetings = [m for m in st.session_state["meetings"] if m["name"]]
+    
+    # Check for duplicate meeting names in real-time
+    meeting_names = [m["name"] for m in current_meetings if m["name"]]
+    duplicate_meeting_names = [name for name in set(meeting_names) if meeting_names.count(name) > 1]
+    
+    if duplicate_meeting_names:
+        st.error(f"❌ Duplicate meeting names detected: {', '.join(duplicate_meeting_names)}. Please fix before saving.")
+        # Don't show save button or unsaved changes warning if duplicates exist
+        st.stop()
+    
     if current_meetings != config.get("meetings", []):
         st.session_state["unsaved_changes"]["meetings"] = True
         st.warning("⚠️ You have unsaved changes in Meetings")
@@ -254,6 +305,21 @@ with st.expander("Meeting Details", expanded=True):
 
     if st.button("💾 Save Meetings", key="save_meetings"):
         try:
+            # Check for duplicate meeting names
+            meeting_names = [m["name"] for m in st.session_state["meetings"] if m["name"]]
+            duplicate_names = [name for name in set(meeting_names) if meeting_names.count(name) > 1]
+            
+            if duplicate_names:
+                st.error(f"❌ Duplicate meeting names found: {', '.join(duplicate_names)}. Please ensure all meeting names are unique.")
+                st.stop()
+            
+            # Get the set of current meeting names
+            current_meeting_names = {m["name"] for m in st.session_state["meetings"] if m["name"]}
+            original_meeting_names = {m["name"] for m in st.session_state["original_values"]["meetings"]}
+            
+            # Find deleted meetings
+            deleted_meetings = original_meeting_names - current_meeting_names
+            
             # Handle cascading updates when meeting names change
             for old_meeting in st.session_state["original_values"]["meetings"]:
                 old_name = old_meeting["name"]
@@ -284,6 +350,19 @@ with st.expander("Meeting Details", expanded=True):
                                 config["active_meetings"] = [new_name if m == old_name else m for m in config["active_meetings"]]
                             break
             
+            # Handle DELETE cascades for removed meetings
+            for deleted_meeting in deleted_meetings:
+                # Remove from key_attendees
+                config["key_attendees"] = [ka for ka in config.get("key_attendees", []) if ka.get("meeting") != deleted_meeting]
+                
+                # Remove from key_meetings
+                if "key_meetings" in config:
+                    config["key_meetings"] = [m for m in config["key_meetings"] if m != deleted_meeting]
+                
+                # Remove from active_meetings
+                if "active_meetings" in config:
+                    config["active_meetings"] = [m for m in config["active_meetings"] if m != deleted_meeting]
+            
             config["meetings"] = [m for m in st.session_state["meetings"] if m["name"]]
             with open(CONFIG_PATH, "w") as f:
                 yaml.safe_dump(config, f)
@@ -293,6 +372,9 @@ with st.expander("Meeting Details", expanded=True):
                 updated_config = yaml.safe_load(f)
                 if updated_config is None:
                     updated_config = {}
+            
+            # Update the global config variable to reflect the changes
+            config.update(updated_config)
             
             st.session_state["original_values"]["meetings"] = config["meetings"].copy()
             st.session_state["original_values"]["key_attendees"] = updated_config.get("key_attendees", []).copy()
@@ -326,7 +408,7 @@ with st.expander("Key Attendee Details", expanded=True):
     # Table header
     ka_header_cols = st.columns([4, 7, 1])
     ka_header_cols[0].markdown("<div style='margin-bottom:-18px'><b>Meeting</b></div>", unsafe_allow_html=True)
-    ka_header_cols[1].markdown("<div style='margin-bottom:-18px'><b>Attendees</b></div>", unsafe_allow_html=True)
+    ka_header_cols[1].markdown("<div style='margin-bottom:-18px'><b>Key Attendees</b></div>", unsafe_allow_html=True)
 
     for i, ka in enumerate(st.session_state["key_attendees"]):
         # Skip key attendees that reference non-existent meetings
@@ -387,9 +469,6 @@ with st.expander("Key Attendee Details", expanded=True):
 # Key Meetings
 st.subheader("Key Meetings")
 with st.expander("Key Meeting Details", expanded=True):
-    if "key_meetings_touched" not in st.session_state:
-        st.session_state["key_meetings_touched"] = False
-
     config_key_meetings = config.get("key_meetings", [])
     valid_key_meetings = [m for m in config_key_meetings if m in meeting_names]
 
@@ -397,11 +476,10 @@ with st.expander("Key Meeting Details", expanded=True):
         "",
         meeting_names,
         valid_key_meetings,
-        key="key_meetings_multiselect",
-        on_change=lambda: st.session_state.update({"key_meetings_touched": True})
+        key="key_meetings_multiselect"
     )
 
-    if st.session_state["key_meetings_touched"] and current_key_meetings != valid_key_meetings:
+    if current_key_meetings != valid_key_meetings:
         st.session_state["key_meetings"] = current_key_meetings
         st.session_state["unsaved_changes"]["key_meetings"] = True
         st.warning("⚠️ You have unsaved changes in Key Meetings")
@@ -458,8 +536,6 @@ with st.expander("Penalty Details", expanded=True):
 
 # Active Meetings
 st.subheader("Active Meetings")
-if "active_meetings_touched" not in st.session_state:
-    st.session_state["active_meetings_touched"] = False
 
 config_active_meetings = config.get("active_meetings", [])
 valid_active_meetings = [m for m in config_active_meetings if m in meeting_names]
@@ -468,11 +544,10 @@ current_active_meetings = st.multiselect(
     "",
     meeting_names,
     valid_active_meetings,
-    key="active_meetings_multiselect",
-    on_change=lambda: st.session_state.update({"active_meetings_touched": True})
+    key="active_meetings_multiselect"
 )
 
-if st.session_state["active_meetings_touched"] and current_active_meetings != valid_active_meetings:
+if current_active_meetings != valid_active_meetings:
     st.session_state["active_meetings"] = current_active_meetings
     st.session_state["unsaved_changes"]["active_meetings"] = True
     st.warning("⚠️ You have unsaved changes in Active Meetings")
@@ -502,17 +577,114 @@ if st.button("Run Scheduler"):
     if not calendar_name:
         st.error("Please enter a calendar name.")
     else:
+        # Reload config from file to ensure we have the latest data
+        try:
+            with open(CONFIG_PATH, "r") as f:
+                latest_config = yaml.safe_load(f)
+                if latest_config is None:
+                    latest_config = {}
+            
+            # Validate that we have the required configuration
+            if not latest_config.get("members"):
+                st.error("❌ No members found in configuration. Please add members before running the scheduler.")
+                st.stop()
+            
+            if not latest_config.get("meetings"):
+                st.error("❌ No meetings found in configuration. Please add meetings before running the scheduler.")
+                st.stop()
+            
+            if not latest_config.get("potential_times_calendar_id"):
+                st.error("❌ No potential times calendar ID found. Please set the calendar ID before running the scheduler.")
+                st.stop()
+            
+            st.info(f"📋 Using configuration with {len(latest_config.get('members', []))} members and {len(latest_config.get('meetings', []))} meetings")
+            
+        except FileNotFoundError:
+            st.error("❌ Configuration file not found. Please save your configuration first.")
+            st.stop()
+        except Exception as e:
+            st.error(f"❌ Error loading configuration: {e}")
+            st.stop()
+        
         cmd = [
-            "python", "main.py", "schedule-meetings",
+            sys.executable, "main.py", "schedule-meetings",
             week_start.isoformat(), week_end.isoformat(),
             "--save-calendar", calendar_name
         ]
+        
         with st.spinner("Running scheduler..."):
             try:
                 result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-                st.success("Scheduler completed!")
-                st.text_area("Scheduler Output", result.stdout, height=300)
+                
+                # Parse the output to extract key information
+                output_lines = result.stdout.split('\n')
+                attendance_line = None
+                conflicts_start = None
+                conflicts_end = None
+                calendar_saved = False
+                calendar_name = None
+                
+                for i, line in enumerate(output_lines):
+                    if "Attendance percentage:" in line:
+                        attendance_line = line
+                    elif "Conflicts:" in line:
+                        conflicts_start = i
+                    elif conflicts_start and line.strip() == "":
+                        conflicts_end = i
+                        break
+                    elif "Calendar:" in line:
+                        calendar_saved = True
+                        calendar_name = line.split("Calendar: ")[1].strip()
+                
+                # Display results
+                if attendance_line:
+                    st.success(f"✅ {attendance_line}")
+                
+                if conflicts_start and conflicts_end:
+                    conflicts = output_lines[conflicts_start:conflicts_end]
+                    if len(conflicts) > 1:  # More than just "Conflicts:" header
+                        # Format each dance's conflicts on a separate line
+                        conflict_lines = [line.strip() for line in conflicts[1:] if line.strip()]
+                        conflict_text = "<br>".join(conflict_lines)
+                        st.markdown(
+                            f'''
+                            <div style="background-color:rgba(255,43,43,0.7); padding: 16px; border-radius: 8px;">
+                                🚧 Conflicts
+                                <pre style="margin:0; font-size: 1rem; background: none; border: none;">{conflict_text}</pre>
+                            </div>
+                            ''',
+                            unsafe_allow_html=True,
+                        )
+                        st.markdown("<br>", unsafe_allow_html=True)
+                    else:
+                        st.markdown(
+                            f'''
+                            <div style="background-color:rgba(255,43,43,0.7); padding: 16px; border-radius: 8px;">
+                                🚧 Conflicts
+                                <pre style="margin:0; font-size: 1rem; background: none; border: none;">No conflicts found!</pre>
+                            </div>
+                            ''',
+                            unsafe_allow_html=True,
+                        )
+                        st.markdown("<br>", unsafe_allow_html=True)
+                
+                if calendar_saved:
+                    st.markdown(
+                        f'''
+                        <div style="background-color:rgba(218,177,218,0.7); padding: 16px; border-radius: 8px; color: white;">
+                            🎉 Schedule has been saved to {calendar_name}!
+                        </div>
+                        ''',
+                        unsafe_allow_html=True,
+                    )
+                
+
+                    
             except subprocess.CalledProcessError as e:
-                st.error("Scheduler failed!")
-                st.text_area("Error Output", e.stderr or str(e), height=300) 
+                st.error("❌ Scheduler failed!")
+                st.text_area("Error Output", e.stderr or str(e), height=300)
+            except FileNotFoundError:
+                st.error("❌ Scheduler script not found. Make sure 'main.py' exists in the current directory.")
+            except Exception as e:
+                st.error(f"❌ Unexpected error running scheduler: {e}") 
  

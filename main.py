@@ -17,6 +17,10 @@ import os
 from collections import defaultdict
 
 def main():
+    # Configure pysat data directory
+    import pysat
+    pysat.params['data_dirs'] = os.path.join(os.getcwd(), 'pysatData')
+    
     parser = argparse.ArgumentParser(description='gcal-scheduler CLI')
     subparsers = parser.add_subparsers(dest='command')
 
@@ -215,7 +219,6 @@ def main():
         slots = fetch_potential_times_from_calendar(service, week_start, week_end)
         # Always use 60 minutes as the meeting duration
         duration_minutes = 60
-        print("\nPossible meeting slots (on the hour and half-hour) for each window:")
         all_possible_slots = []
         slot_index = 0
         for i, window in enumerate(slots):
@@ -231,7 +234,6 @@ def main():
                     'window_id': i  # Track which window/event this slot comes from
                 })
                 slot_index += 1
-        print(f"Total possible slots: {len(all_possible_slots)}")
         # Build member lookup
         member_lookup = {m['id']: m for m in members}
         # SAT variable pool
@@ -283,9 +285,12 @@ def main():
         # 1. Each meeting is scheduled exactly once (hard)
         for meeting in meetings:
             vars_for_meeting = [var_map[(meeting['id'], slot['slot_id'])] for slot in all_possible_slots]
-            cnf = CardEnc.equals(lits=vars_for_meeting, bound=1, vpool=vpool)
-            for clause in cnf.clauses:
-                wcnf.append(clause)
+            if vars_for_meeting:  # Only add constraint if there are possible slots
+                cnf = CardEnc.equals(lits=vars_for_meeting, bound=1, vpool=vpool)
+                for clause in cnf.clauses:
+                    wcnf.append(clause)
+            else:
+                print(f"Warning: No possible slots found for meeting '{meeting['name']}' - all slots have conflicts")
         # 1b. Key attendees constraints (soft, high penalty): for each, penalize if the member(s) cannot attend the meeting in the chosen slot
         for constraint in key_attendees:
             meeting_name = constraint['meeting']
@@ -357,8 +362,15 @@ def main():
                             wcnf.append([-v], weight=penalties['key_meeting_absence'])
         # 4. No double-booking for any member (soft, large penalty)
         # (Removed: no longer penalize double-booking)
+        # Check if we have any constraints to solve
+        if not wcnf.hard:
+            print("No valid scheduling constraints found. This may happen if:")
+            print("- All meetings have conflicts in all available time slots")
+            print("- No potential meeting times are available")
+            print("- No meetings are configured")
+            return
+        
         # Solve
-        print("Solving with MaxSAT...")
         with RC2(wcnf) as rc2:
             if rc2.compute():
                 model = rc2.model
@@ -424,25 +436,16 @@ def main():
                                 # Use tuple to avoid double-counting
                                 double_booking_set.add(tuple(sorted([(a['member_id'], a['slot']['start_time'], a['slot']['end_time'], a['meeting']['id']), (b['member_id'], b['slot']['start_time'], b['slot']['end_time'], b['meeting']['id'])])))
                 print("\nConflicts:")
-                print(f"  Key attendee absences: {key_attendee_absences}")
-                print(f"  Key meeting absences: {key_meeting_absences}")
-                print(f"  Required member absences: {required_member_absences}")
-                print(f"  Double-bookings: {len(double_booking_set)}")
-                print()  # Add a blank line after conflict summary
-                # 1. Member absences (detailed)
+                # Show detailed conflicts for each meeting
                 for item in scheduled:
                     meeting = item['meeting']
                     slot = item['slot']
-                    for m in item['missing']:
-                        print(f"{m} can't attend {meeting['name']} ({slot['start_time']} to {slot['end_time']})")
-                # 2. Double-bookings (detailed)
-                for db in double_booking_set:
-                    a, b = db
-                    print(f"{a[0]} is double-booked: {a[3]} and {b[3]} overlap at {a[1]} to {a[2]}")
+                    missing = item['missing']
+                    if missing:
+                        print(f"  {meeting['name']}: {', '.join(missing)}")
                 # Save schedule to user-specified Google Calendar if requested
                 if args.save_calendar:
                     calendar_name = args.save_calendar
-                    print(f"\nCreating new calendar and saving schedule to: {calendar_name} ...")
                     cal_id = get_or_create_calendar(service, calendar_name)
                     # Build double-booking info for each member/slot
                     double_booked = set()
@@ -472,7 +475,6 @@ def main():
                             create_event(service, cal_id, meeting['name'], slot['start_time'], slot['end_time'], description=description, location=location)
                         except Exception as e:
                             print(f"Failed to create event for {meeting['name']} at {slot['start_time']}: {e}")
-                    print(f"Schedule saved to calendar: {calendar_name}")
             else:
                 print("No schedule possible (should not happen unless no slots exist).")
     elif args.command == 'load-config':

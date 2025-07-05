@@ -3,6 +3,7 @@ google-auth-httplib2
 google-auth-oauthlib
 pytz
 python-dateutil
+pysat
 python-sat
 pyyaml
 streamlit>=1.29.0
