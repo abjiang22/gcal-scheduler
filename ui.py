@@ -621,8 +621,6 @@ if st.button("Run Scheduler"):
                 attendance_line = None
                 conflicts_start = None
                 conflicts_end = None
-                calendar_saved = False
-                calendar_name = None
                 
                 for i, line in enumerate(output_lines):
                     if "Attendance percentage:" in line:
@@ -632,9 +630,6 @@ if st.button("Run Scheduler"):
                     elif conflicts_start and line.strip() == "":
                         conflicts_end = i
                         break
-                    elif "Calendar:" in line:
-                        calendar_saved = True
-                        calendar_name = line.split("Calendar: ")[1].strip()
                 
                 # Display results
                 if attendance_line:
@@ -659,7 +654,7 @@ if st.button("Run Scheduler"):
                     else:
                         st.markdown(
                             f'''
-                            <div style="background-color:rgba(255,43,43,0.7); padding: 16px; border-radius: 8px;">
+                            <div style="background-color:rgba(255,43,43,0.5); padding: 16px; border-radius: 8px;">
                                 🚧 Conflicts
                                 <pre style="margin:0; font-size: 1rem; background: none; border: none;">No conflicts found!</pre>
                             </div>
@@ -668,17 +663,15 @@ if st.button("Run Scheduler"):
                         )
                         st.markdown("<br>", unsafe_allow_html=True)
                 
-                if calendar_saved:
-                    st.markdown(
-                        f'''
-                        <div style="background-color:rgba(218,177,218,0.7); padding: 16px; border-radius: 8px; color: white;">
-                            🎉 Schedule has been saved to {calendar_name}!
-                        </div>
-                        ''',
-                        unsafe_allow_html=True,
-                    )
-                
-
+                # Show success message using the calendar name from user input
+                st.markdown(
+                    f'''
+                    <div style="background-color:rgba(218,177,218,0.5); padding: 16px; border-radius: 8px; color: white;">
+                        🎉 Schedule has been saved to {calendar_name}!
+                    </div>
+                    ''',
+                    unsafe_allow_html=True,
+                )
                     
             except subprocess.CalledProcessError as e:
                 st.error("❌ Scheduler failed!")
