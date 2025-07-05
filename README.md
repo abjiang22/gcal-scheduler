@@ -211,7 +211,7 @@ key_attendees:
 ```
 
 ### Priority Meetings
-Mark certain meetings as high-priority. Missing these meetings incurs higher penalties.
+Mark certain meetings as high-priority. Absences from these meetings incur higher penalties.
 
 ```yaml
 key_meetings:
@@ -221,7 +221,6 @@ key_meetings:
 
 ### Conflict Resolution
 The scheduler automatically:
-- Detects double-bookings
 - Reports member absences
 - Provides attendance percentages
 - Creates detailed conflict reports
@@ -295,7 +294,7 @@ Within the same potential time window, no two meetings can be scheduled in overl
 | `--save-calendar` | string | Calendar name for saving schedule | None |
 | `--penalty-key-attendee-absence` | int | Penalty for key attendee missing | 100 |
 | `--penalty-required-member-absence` | int | Penalty for any member missing | 1 |
-| `--penalty-key-meeting-absence` | int | Penalty for missing priority meeting | 5 |
+| `--penalty-key-meeting-absence` | int | Penalty for absences in priority meeting | 5 |
 
 ## 🤝 Contributing
 
@@ -308,9 +307,7 @@ Within the same potential time window, no two meetings can be scheduled in overl
 ## 🆘 Support
 
 For issues and questions:
-1. Check the [Troubleshooting](#troubleshooting) section
-2. Review the [Configuration](#configuration) examples
-3. Open an issue on GitHub
+Email alexjiang8715@gmail.com
 
 ---
 

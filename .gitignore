@@ -3,3 +3,4 @@ data
 token.pickle
 __pycache__/
 config.yaml
+misc
