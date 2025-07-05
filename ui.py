@@ -41,16 +41,16 @@ if "unsaved_changes" not in st.session_state:
         "key_meetings": False, "active_meetings": False, "penalties": False, "calendar_id": False
     }
 
-if "original_values" not in st.session_state:
-    st.session_state["original_values"] = {
-        "members": config.get("members", []).copy(),
-        "meetings": config.get("meetings", []).copy(),
-        "key_attendees": config.get("key_attendees", []).copy(),
-        "key_meetings": config.get("key_meetings", []).copy(),
-        "active_meetings": config.get("active_meetings", []).copy(),
-        "penalties": config.get("penalties", {}).copy(),
-        "calendar_id": config.get("potential_times_calendar_id", "")
-    }
+# Always update original_values to match current config
+st.session_state["original_values"] = {
+    "members": config.get("members", []).copy(),
+    "meetings": config.get("meetings", []).copy(),
+    "key_attendees": config.get("key_attendees", []).copy(),
+    "key_meetings": config.get("key_meetings", []).copy(),
+    "active_meetings": config.get("active_meetings", []).copy(),
+    "penalties": config.get("penalties", {}).copy(),
+    "calendar_id": config.get("potential_times_calendar_id", "")
+}
 
 st.title("G-Cal Meeting Scheduler")
 
@@ -114,301 +114,350 @@ st.header("Edit Configuration")
 
 # Members
 st.subheader("Members")
-if "members" not in st.session_state:
-    st.session_state["members"] = config.get("members", []).copy()
+with st.expander("Member Details", expanded=True):
+    if "members" not in st.session_state:
+        st.session_state["members"] = config.get("members", []).copy()
 
-# Initialize members change tracking
-if "members_changed" not in st.session_state:
-    st.session_state["members_changed"] = False
+    # Initialize members change tracking
+    if "members_changed" not in st.session_state:
+        st.session_state["members_changed"] = False
 
-members_df = pd.DataFrame(st.session_state["members"])
-edited_members = st.data_editor(
-    members_df,
-    num_rows="dynamic",
-    use_container_width=True,
-    hide_index=True,
-    column_config={
-        "name": st.column_config.TextColumn("Name", width="medium"),
-        "calendar_id": st.column_config.TextColumn("Calendar ID", width="large")
-    },
-    column_order=["name", "calendar_id"],
-    key="edited_members_df"
-)
+    members_df = pd.DataFrame(st.session_state["members"])
+    edited_members = st.data_editor(
+        members_df,
+        num_rows="dynamic",
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "name": st.column_config.TextColumn("Name", width="medium"),
+            "calendar_id": st.column_config.TextColumn("Calendar ID", width="large")
+        },
+        column_order=["name", "calendar_id"],
+        key="edited_members_df"
+    )
 
-# Always update session state with the returned data
-if edited_members is not None:
-    new_members_data = edited_members.to_dict("records")
-    if new_members_data != st.session_state["members"]:
-        st.session_state["members"] = new_members_data
-        st.session_state["members_changed"] = True
+    # Always update session state with the returned data
+    if edited_members is not None:
+        new_members_data = edited_members.to_dict("records")
+        if new_members_data != st.session_state["members"]:
+            st.session_state["members"] = new_members_data
+            st.session_state["members_changed"] = True
 
-current_members = [m for m in st.session_state["members"] if m["name"] and m["calendar_id"]]
-if current_members != st.session_state["original_values"]["members"]:
-    st.session_state["unsaved_changes"]["members"] = True
-    st.warning("⚠️ You have unsaved changes in Members")
-else:
-    st.session_state["unsaved_changes"]["members"] = False
-
-if st.button("💾 Save Members", key="save_members"):
-    try:
-        # Handle cascading updates when member names change
-        for old_member in st.session_state["original_values"]["members"]:
-            old_name = old_member["name"]
-            for new_member in current_members:
-                if new_member.get("calendar_id") == old_member.get("calendar_id"):
-                    new_name = new_member["name"]
-                    if old_name != new_name:
-                        # Update all references to this member name in the config
-                        for meeting in config.get("meetings", []):
-                            if old_name in meeting.get("members", []):
-                                meeting["members"] = [new_name if m == old_name else m for m in meeting["members"]]
-                        for ka in config.get("key_attendees", []):
-                            if old_name in ka.get("members", []):
-                                ka["members"] = [new_name if m == old_name else m for m in ka["members"]]
-                        break
-        
-        config["members"] = current_members
-        with open(CONFIG_PATH, "w") as f:
-            yaml.safe_dump(config, f)
-        
-        # Reload config and update session state
-        with open(CONFIG_PATH, "r") as f:
-            updated_config = yaml.safe_load(f)
-            if updated_config is None:
-                updated_config = {}
-        
-        st.session_state["original_values"]["members"] = current_members.copy()
-        st.session_state["original_values"]["meetings"] = updated_config.get("meetings", []).copy()
-        st.session_state["original_values"]["key_attendees"] = updated_config.get("key_attendees", []).copy()
-        st.session_state["original_values"]["key_meetings"] = updated_config.get("key_meetings", []).copy()
-        st.session_state["original_values"]["active_meetings"] = updated_config.get("active_meetings", []).copy()
-        
-        st.session_state["meetings"] = updated_config.get("meetings", []).copy()
-        st.session_state["key_attendees"] = updated_config.get("key_attendees", []).copy()
-        st.session_state["key_meetings"] = updated_config.get("key_meetings", []).copy()
-        st.session_state["active_meetings"] = updated_config.get("active_meetings", []).copy()
-        
+    current_members = [m for m in st.session_state["members"] if m["name"] and m["calendar_id"]]
+    if current_members != st.session_state["original_values"]["members"]:
+        st.session_state["unsaved_changes"]["members"] = True
+        st.warning("⚠️ You have unsaved changes in Members")
+    else:
         st.session_state["unsaved_changes"]["members"] = False
-        st.success("Members saved!")
-    except Exception as e:
-        st.error(f"Error saving members: {e}")
+
+    if st.button("💾 Save Members", key="save_members"):
+        try:
+            # Handle cascading updates when member names change
+            for old_member in st.session_state["original_values"]["members"]:
+                old_name = old_member["name"]
+                for new_member in current_members:
+                    if new_member.get("calendar_id") == old_member.get("calendar_id"):
+                        new_name = new_member["name"]
+                        if old_name != new_name:
+                            # Update all references to this member name in the config
+                            for meeting in config.get("meetings", []):
+                                if old_name in meeting.get("members", []):
+                                    meeting["members"] = [new_name if m == old_name else m for m in meeting["members"]]
+                            for ka in config.get("key_attendees", []):
+                                if old_name in ka.get("members", []):
+                                    ka["members"] = [new_name if m == old_name else m for m in ka["members"]]
+                            break
+            
+            config["members"] = current_members
+            with open(CONFIG_PATH, "w") as f:
+                yaml.safe_dump(config, f)
+            
+            # Reload config and update session state
+            with open(CONFIG_PATH, "r") as f:
+                updated_config = yaml.safe_load(f)
+                if updated_config is None:
+                    updated_config = {}
+            
+            st.session_state["original_values"]["members"] = current_members.copy()
+            st.session_state["original_values"]["meetings"] = updated_config.get("meetings", []).copy()
+            st.session_state["original_values"]["key_attendees"] = updated_config.get("key_attendees", []).copy()
+            st.session_state["original_values"]["key_meetings"] = updated_config.get("key_meetings", []).copy()
+            st.session_state["original_values"]["active_meetings"] = updated_config.get("active_meetings", []).copy()
+            
+            st.session_state["meetings"] = updated_config.get("meetings", []).copy()
+            st.session_state["key_attendees"] = updated_config.get("key_attendees", []).copy()
+            st.session_state["key_meetings"] = updated_config.get("key_meetings", []).copy()
+            st.session_state["active_meetings"] = updated_config.get("active_meetings", []).copy()
+            
+            st.session_state["unsaved_changes"]["members"] = False
+            st.success("Members saved!")
+        except Exception as e:
+            st.error(f"Error saving members: {e}")
 
 # Meetings
 st.subheader("Meetings")
-if "meetings" not in st.session_state:
-    st.session_state["meetings"] = config.get("meetings", []).copy()
+with st.expander("Meeting Details", expanded=True):
+    if "meetings" not in st.session_state:
+        st.session_state["meetings"] = config.get("meetings", []).copy()
 
-if "meeting_remove_idxs" not in st.session_state:
+    if "meeting_remove_idxs" not in st.session_state:
+        st.session_state["meeting_remove_idxs"] = []
+
+    member_names = [m["name"] for m in config.get("members", []) if m["name"]]
+
+    # Table header
+    meeting_header_cols = st.columns([4, 7, 1])
+    meeting_header_cols[0].markdown("<div style='margin-bottom:-18px'><b>Meeting Name</b></div>", unsafe_allow_html=True)
+    meeting_header_cols[1].markdown("<div style='margin-bottom:-18px'><b>Attendees</b></div>", unsafe_allow_html=True)
+
+    # Process meetings
+    for i, meeting in enumerate(st.session_state["meetings"]):
+        cols = st.columns([4, 7, 1])
+        
+        name_key = f"meeting_name_{i}"
+        attendees_key = f"meeting_attendees_{i}"
+        remove_key = f"remove_meeting_{i}"
+        
+        mtg_name = cols[0].text_input("", meeting["name"], key=name_key)
+        saved_member_names = [m["name"] for m in config.get("members", []) if m["name"]]
+        attendees = cols[1].multiselect("", saved_member_names, meeting.get("members", []), key=attendees_key)
+        
+        cols[2].markdown("<div style='height: 27px'></div>", unsafe_allow_html=True)
+        if cols[2].button("❌", key=remove_key):
+            st.session_state["meeting_remove_idxs"].append(i)
+        
+        # Update session state immediately
+        if st.session_state["meetings"][i]["name"] != mtg_name:
+            st.session_state["meetings"][i]["name"] = mtg_name
+            st.rerun()
+        if st.session_state["meetings"][i].get("members") != attendees:
+            st.session_state["meetings"][i]["members"] = attendees
+            st.rerun()
+
+    # Remove meetings marked for deletion
+    for idx in reversed(st.session_state["meeting_remove_idxs"]):
+        if idx < len(st.session_state["meetings"]):
+            st.session_state["meetings"].pop(idx)
     st.session_state["meeting_remove_idxs"] = []
 
-member_names = [m["name"] for m in config.get("members", []) if m["name"]]
-
-# Table header
-meeting_header_cols = st.columns([4, 7, 1])
-meeting_header_cols[0].markdown("<div style='margin-bottom:-18px'><b>Name</b></div>", unsafe_allow_html=True)
-meeting_header_cols[1].markdown("<div style='margin-bottom:-18px'><b>Attendees</b></div>", unsafe_allow_html=True)
-
-# Process meetings
-for i, meeting in enumerate(st.session_state["meetings"]):
-    cols = st.columns([4, 7, 1])
-    
-    name_key = f"meeting_name_{i}"
-    attendees_key = f"meeting_attendees_{i}"
-    remove_key = f"remove_meeting_{i}"
-    
-    mtg_name = cols[0].text_input("", meeting["name"], key=name_key)
-    saved_member_names = [m["name"] for m in config.get("members", []) if m["name"]]
-    attendees = cols[1].multiselect("", saved_member_names, meeting.get("members", []), key=attendees_key)
-    
-    cols[2].markdown("<div style='height: 27px'></div>", unsafe_allow_html=True)
-    if cols[2].button("❌", key=remove_key):
-        st.session_state["meeting_remove_idxs"].append(i)
-    
-    # Update session state immediately
-    if st.session_state["meetings"][i]["name"] != mtg_name:
-        st.session_state["meetings"][i]["name"] = mtg_name
-        st.rerun()
-    if st.session_state["meetings"][i].get("members") != attendees:
-        st.session_state["meetings"][i]["members"] = attendees
+    if st.button("Add new meeting", key="add_meeting"):
+        st.session_state["meetings"].append({"name": "", "members": []})
         st.rerun()
 
-# Remove meetings marked for deletion
-for idx in reversed(st.session_state["meeting_remove_idxs"]):
-    if idx < len(st.session_state["meetings"]):
-        st.session_state["meetings"].pop(idx)
-st.session_state["meeting_remove_idxs"] = []
-
-if st.button("Add new meeting", key="add_meeting"):
-    st.session_state["meetings"].append({"name": "", "members": []})
-    st.rerun()
-
-# Check for changes in meetings - compare against actual config file data
-current_meetings = [m for m in st.session_state["meetings"] if m["name"]]
-if current_meetings != config.get("meetings", []):
-    st.session_state["unsaved_changes"]["meetings"] = True
-    st.warning("⚠️ You have unsaved changes in Meetings")
-else:
-    st.session_state["unsaved_changes"]["meetings"] = False
-
-if st.button("💾 Save Meetings", key="save_meetings"):
-    try:
-        # Handle cascading updates when meeting names change
-        for old_meeting in st.session_state["original_values"]["meetings"]:
-            old_name = old_meeting["name"]
-            old_members = set(old_meeting.get("members", []))
-            
-            for new_meeting in st.session_state["meetings"]:
-                new_name = new_meeting.get("name")
-                new_members = set(new_meeting.get("members", []))
-                
-                # Match by members (using sets to ignore order)
-                if new_name and old_members == new_members:
-                    if old_name != new_name:
-                        # Update all references to this meeting name in the config
-                        for ka in config.get("key_attendees", []):
-                            if ka.get("meeting") == old_name:
-                                ka["meeting"] = new_name
-                        if old_name in config.get("key_meetings", []):
-                            config["key_meetings"] = [new_name if m == old_name else m for m in config["key_meetings"]]
-                        if old_name in config.get("active_meetings", []):
-                            config["active_meetings"] = [new_name if m == old_name else m for m in config["active_meetings"]]
-                        break
-        
-        config["meetings"] = [m for m in st.session_state["meetings"] if m["name"]]
-        with open(CONFIG_PATH, "w") as f:
-            yaml.safe_dump(config, f)
-        
-        # Reload config and update session state
-        with open(CONFIG_PATH, "r") as f:
-            updated_config = yaml.safe_load(f)
-            if updated_config is None:
-                updated_config = {}
-        
-        st.session_state["original_values"]["meetings"] = config["meetings"].copy()
-        st.session_state["original_values"]["key_attendees"] = updated_config.get("key_attendees", []).copy()
-        st.session_state["original_values"]["key_meetings"] = updated_config.get("key_meetings", []).copy()
-        st.session_state["original_values"]["active_meetings"] = updated_config.get("active_meetings", []).copy()
-        
-        st.session_state["key_attendees"] = updated_config.get("key_attendees", []).copy()
-        st.session_state["key_meetings"] = updated_config.get("key_meetings", []).copy()
-        st.session_state["active_meetings"] = updated_config.get("active_meetings", []).copy()
-        
+    # Check for changes in meetings - compare against actual config file data
+    current_meetings = [m for m in st.session_state["meetings"] if m["name"]]
+    if current_meetings != config.get("meetings", []):
+        st.session_state["unsaved_changes"]["meetings"] = True
+        st.warning("⚠️ You have unsaved changes in Meetings")
+    else:
         st.session_state["unsaved_changes"]["meetings"] = False
-        st.session_state["unsaved_changes"]["key_attendees"] = False
-        st.session_state["unsaved_changes"]["key_meetings"] = False
-        st.session_state["unsaved_changes"]["active_meetings"] = False
-        st.success("Meetings saved!")
-    except Exception as e:
-        st.error(f"Error saving meetings: {e}")
+
+    if st.button("💾 Save Meetings", key="save_meetings"):
+        try:
+            # Handle cascading updates when meeting names change
+            for old_meeting in st.session_state["original_values"]["meetings"]:
+                old_name = old_meeting["name"]
+                old_members = set(old_meeting.get("members", []))
+                
+                for new_meeting in st.session_state["meetings"]:
+                    new_name = new_meeting.get("name")
+                    new_members = set(new_meeting.get("members", []))
+                    
+                    # Match by members (using sets to ignore order)
+                    if new_name and old_members == new_members:
+                        if old_name != new_name:
+                            # Update all references to this meeting name in the config
+                            for ka in config.get("key_attendees", []):
+                                if ka.get("meeting") == old_name:
+                                    ka["meeting"] = new_name
+                            
+                            # Update key_meetings list - replace old_name with new_name
+                            if "key_meetings" not in config:
+                                config["key_meetings"] = []
+                            if old_name in config["key_meetings"]:
+                                config["key_meetings"] = [new_name if m == old_name else m for m in config["key_meetings"]]
+                            
+                            # Update active_meetings list - replace old_name with new_name
+                            if "active_meetings" not in config:
+                                config["active_meetings"] = []
+                            if old_name in config["active_meetings"]:
+                                config["active_meetings"] = [new_name if m == old_name else m for m in config["active_meetings"]]
+                            break
+            
+            config["meetings"] = [m for m in st.session_state["meetings"] if m["name"]]
+            with open(CONFIG_PATH, "w") as f:
+                yaml.safe_dump(config, f)
+            
+            # Reload config and update session state
+            with open(CONFIG_PATH, "r") as f:
+                updated_config = yaml.safe_load(f)
+                if updated_config is None:
+                    updated_config = {}
+            
+            st.session_state["original_values"]["meetings"] = config["meetings"].copy()
+            st.session_state["original_values"]["key_attendees"] = updated_config.get("key_attendees", []).copy()
+            st.session_state["original_values"]["key_meetings"] = updated_config.get("key_meetings", []).copy()
+            st.session_state["original_values"]["active_meetings"] = updated_config.get("active_meetings", []).copy()
+            
+            st.session_state["key_attendees"] = updated_config.get("key_attendees", []).copy()
+            st.session_state["key_meetings"] = updated_config.get("key_meetings", []).copy()
+            st.session_state["active_meetings"] = updated_config.get("active_meetings", []).copy()
+            
+            st.session_state["unsaved_changes"]["meetings"] = False
+            st.session_state["unsaved_changes"]["key_attendees"] = False
+            st.session_state["unsaved_changes"]["key_meetings"] = False
+            st.session_state["unsaved_changes"]["active_meetings"] = False
+            st.success("Meetings saved!")
+        except Exception as e:
+            st.error(f"Error saving meetings: {e}")
 
 # Key Attendees
 st.subheader("Key Attendees")
-if "key_attendees" not in st.session_state:
-    st.session_state["key_attendees"] = config.get("key_attendees", []).copy()
+with st.expander("Key Attendee Details", expanded=True):
+    if "key_attendees" not in st.session_state:
+        st.session_state["key_attendees"] = config.get("key_attendees", []).copy()
 
-if "ka_remove_idxs" not in st.session_state:
+    if "ka_remove_idxs" not in st.session_state:
+        st.session_state["ka_remove_idxs"] = []
+
+    meeting_names = [m["name"] for m in config.get("meetings", []) if m["name"]]
+    member_names = [m["name"] for m in config.get("members", []) if m["name"]]
+
+    # Table header
+    ka_header_cols = st.columns([4, 7, 1])
+    ka_header_cols[0].markdown("<div style='margin-bottom:-18px'><b>Meeting</b></div>", unsafe_allow_html=True)
+    ka_header_cols[1].markdown("<div style='margin-bottom:-18px'><b>Attendees</b></div>", unsafe_allow_html=True)
+
+    for i, ka in enumerate(st.session_state["key_attendees"]):
+        # Skip key attendees that reference non-existent meetings
+        if ka.get("meeting") not in meeting_names:
+            continue
+            
+        cols = st.columns([4, 7, 1])
+        
+        meeting_key = f"ka_meeting_{i}"
+        attendees_key = f"ka_attendees_{i}"
+        remove_key = f"remove_ka_{i}"
+        
+        meeting = cols[0].selectbox("", meeting_names, index=meeting_names.index(ka["meeting"]) if ka.get("meeting") in meeting_names else 0, key=meeting_key)
+        saved_member_names = [m["name"] for m in config.get("members", []) if m["name"]]
+        attendees = cols[1].multiselect("", saved_member_names, ka.get("members", []), key=attendees_key)
+        
+        cols[2].markdown("<div style='height: 28px'></div>", unsafe_allow_html=True)
+        if cols[2].button("❌", key=remove_key):
+            st.session_state["ka_remove_idxs"].append(i)
+        
+        # Update session state immediately
+        if st.session_state["key_attendees"][i]["meeting"] != meeting:
+            st.session_state["key_attendees"][i]["meeting"] = meeting
+            st.rerun()
+        if st.session_state["key_attendees"][i].get("members") != attendees:
+            st.session_state["key_attendees"][i]["members"] = attendees
+            st.rerun()
+
+    # Remove key attendees marked for deletion
+    for idx in reversed(st.session_state["ka_remove_idxs"]):
+        if idx < len(st.session_state["key_attendees"]):
+            st.session_state["key_attendees"].pop(idx)
     st.session_state["ka_remove_idxs"] = []
 
-meeting_names = [m["name"] for m in config.get("meetings", []) if m["name"]]
-member_names = [m["name"] for m in config.get("members", []) if m["name"]]
-
-# Table header
-ka_header_cols = st.columns([4, 7, 1])
-ka_header_cols[0].markdown("<div style='margin-bottom:-18px'><b>Meeting</b></div>", unsafe_allow_html=True)
-ka_header_cols[1].markdown("<div style='margin-bottom:-18px'><b>Attendees</b></div>", unsafe_allow_html=True)
-
-for i, ka in enumerate(st.session_state["key_attendees"]):
-    # Skip key attendees that reference non-existent meetings
-    if ka.get("meeting") not in meeting_names:
-        continue
-        
-    cols = st.columns([4, 7, 1])
-    
-    meeting_key = f"ka_meeting_{i}"
-    attendees_key = f"ka_attendees_{i}"
-    remove_key = f"remove_ka_{i}"
-    
-    meeting = cols[0].selectbox("", meeting_names, index=meeting_names.index(ka["meeting"]) if ka.get("meeting") in meeting_names else 0, key=meeting_key)
-    saved_member_names = [m["name"] for m in config.get("members", []) if m["name"]]
-    attendees = cols[1].multiselect("", saved_member_names, ka.get("members", []), key=attendees_key)
-    
-    cols[2].markdown("<div style='height: 28px'></div>", unsafe_allow_html=True)
-    if cols[2].button("❌", key=remove_key):
-        st.session_state["ka_remove_idxs"].append(i)
-    
-    # Update session state immediately
-    if st.session_state["key_attendees"][i]["meeting"] != meeting:
-        st.session_state["key_attendees"][i]["meeting"] = meeting
-        st.rerun()
-    if st.session_state["key_attendees"][i].get("members") != attendees:
-        st.session_state["key_attendees"][i]["members"] = attendees
+    if st.button("Add new key attendee", key="add_ka"):
+        st.session_state["key_attendees"].append({"meeting": meeting_names[0] if meeting_names else "", "members": []})
         st.rerun()
 
-# Remove key attendees marked for deletion
-for idx in reversed(st.session_state["ka_remove_idxs"]):
-    if idx < len(st.session_state["key_attendees"]):
-        st.session_state["key_attendees"].pop(idx)
-st.session_state["ka_remove_idxs"] = []
-
-if st.button("Add new key attendee", key="add_ka"):
-    st.session_state["key_attendees"].append({"meeting": meeting_names[0] if meeting_names else "", "members": []})
-    st.rerun()
-
-# Check for changes in key attendees - compare against actual config file data
-current_key_attendees = [ka for ka in st.session_state["key_attendees"] if ka["meeting"] and ka["members"]]
-if current_key_attendees != st.session_state["original_values"]["key_attendees"]:
-    st.session_state["unsaved_changes"]["key_attendees"] = True
-    st.warning("⚠️ You have unsaved changes in Key Attendees")
-else:
-    st.session_state["unsaved_changes"]["key_attendees"] = False
-
-if st.button("💾 Save Key Attendees", key="save_ka"):
-    try:
-        config["key_attendees"] = [ka for ka in st.session_state["key_attendees"] if ka["meeting"] and ka["members"]]
-        with open(CONFIG_PATH, "w") as f:
-            yaml.safe_dump(config, f)
-        st.session_state["original_values"]["key_attendees"] = config["key_attendees"].copy()
+    # Check for changes in key attendees - compare against actual config file data
+    current_key_attendees = [ka for ka in st.session_state["key_attendees"] if ka["meeting"] and ka["members"]]
+    if current_key_attendees != st.session_state["original_values"]["key_attendees"]:
+        st.session_state["unsaved_changes"]["key_attendees"] = True
+        st.warning("⚠️ You have unsaved changes in Key Attendees")
+    else:
         st.session_state["unsaved_changes"]["key_attendees"] = False
-        st.success("Key attendees saved!")
-    except Exception as e:
-        st.error(f"Error saving key attendees: {e}")
+
+    if st.button("💾 Save Key Attendees", key="save_ka"):
+        try:
+            config["key_attendees"] = [ka for ka in st.session_state["key_attendees"] if ka["meeting"] and ka["members"]]
+            with open(CONFIG_PATH, "w") as f:
+                yaml.safe_dump(config, f)
+            st.session_state["original_values"]["key_attendees"] = config["key_attendees"].copy()
+            st.session_state["unsaved_changes"]["key_attendees"] = False
+            st.success("Key attendees saved!")
+        except Exception as e:
+            st.error(f"Error saving key attendees: {e}")
 
 # Key Meetings
-st.markdown("<h3 style='margin-bottom: 0.2rem;'>Key Meetings</h3>", unsafe_allow_html=True)
-if "key_meetings_touched" not in st.session_state:
-    st.session_state["key_meetings_touched"] = False
+st.subheader("Key Meetings")
+with st.expander("Key Meeting Details", expanded=True):
+    if "key_meetings_touched" not in st.session_state:
+        st.session_state["key_meetings_touched"] = False
 
-config_key_meetings = config.get("key_meetings", [])
-valid_key_meetings = [m for m in config_key_meetings if m in meeting_names]
+    config_key_meetings = config.get("key_meetings", [])
+    valid_key_meetings = [m for m in config_key_meetings if m in meeting_names]
 
-current_key_meetings = st.multiselect(
-    "",
-    meeting_names,
-    valid_key_meetings,
-    key="key_meetings_multiselect",
-    on_change=lambda: st.session_state.update({"key_meetings_touched": True})
-)
+    current_key_meetings = st.multiselect(
+        "",
+        meeting_names,
+        valid_key_meetings,
+        key="key_meetings_multiselect",
+        on_change=lambda: st.session_state.update({"key_meetings_touched": True})
+    )
 
-if st.session_state["key_meetings_touched"] and current_key_meetings != valid_key_meetings:
-    st.session_state["key_meetings"] = current_key_meetings
-    st.session_state["unsaved_changes"]["key_meetings"] = True
-    st.warning("⚠️ You have unsaved changes in Key Meetings")
-else:
-    st.session_state["unsaved_changes"]["key_meetings"] = False
-
-if st.button("💾 Save Key Meetings", key="save_key_meetings"):
-    try:
-        config["key_meetings"] = st.session_state["key_meetings"]
-        with open(CONFIG_PATH, "w") as f:
-            yaml.safe_dump(config, f)
-        st.session_state["original_values"]["key_meetings"] = st.session_state["key_meetings"].copy()
+    if st.session_state["key_meetings_touched"] and current_key_meetings != valid_key_meetings:
+        st.session_state["key_meetings"] = current_key_meetings
+        st.session_state["unsaved_changes"]["key_meetings"] = True
+        st.warning("⚠️ You have unsaved changes in Key Meetings")
+    else:
         st.session_state["unsaved_changes"]["key_meetings"] = False
-        st.success("Key meetings saved!")
-    except Exception as e:
-        st.error(f"Error saving key meetings: {e}")
+
+    if st.button("💾 Save Key Meetings", key="save_key_meetings"):
+        try:
+            config["key_meetings"] = st.session_state["key_meetings"]
+            with open(CONFIG_PATH, "w") as f:
+                yaml.safe_dump(config, f)
+            st.session_state["original_values"]["key_meetings"] = st.session_state["key_meetings"].copy()
+            st.session_state["unsaved_changes"]["key_meetings"] = False
+            st.success("Key meetings saved!")
+        except Exception as e:
+            st.error(f"Error saving key meetings: {e}")
+
+# Penalties
+st.subheader("Penalties")
+with st.expander("Penalty Details", expanded=True):
+    if "penalties" not in st.session_state:
+        st.session_state["penalties"] = config.get("penalties", {}).copy()
+
+    penalty_items = list(st.session_state["penalties"].items())
+    penalty_cols = st.columns([4, 2, 1])
+    penalty_cols[0].markdown("**Penalty Name**")
+    penalty_cols[1].markdown("**Value**")
+    penalty_cols[2].markdown("")
+
+    for i, (pen_name, pen_val) in enumerate(penalty_items):
+        cols = st.columns([4, 2, 1])
+        cols[0].markdown(f"<div style='line-height:100px; vertical-align: middle;'>{pen_name}</div>", unsafe_allow_html=True)
+        value = cols[1].number_input("", value=pen_val, key=f"penalty_value_{i}")
+        penalty_items[i] = (pen_name, value)
+
+    st.session_state["penalties"] = {k: v for k, v in penalty_items if k}
+
+    if st.session_state["penalties"] != st.session_state["original_values"]["penalties"]:
+        st.session_state["unsaved_changes"]["penalties"] = True
+        st.warning("⚠️ You have unsaved changes in Penalties")
+    else:
+        st.session_state["unsaved_changes"]["penalties"] = False
+
+    if st.button("💾 Save Penalties", key="save_penalties"):
+        try:
+            config["penalties"] = st.session_state["penalties"]
+            with open(CONFIG_PATH, "w") as f:
+                yaml.safe_dump(config, f)
+            st.session_state["original_values"]["penalties"] = st.session_state["penalties"].copy()
+            st.session_state["unsaved_changes"]["penalties"] = False
+            st.success("Penalties saved!")
+        except Exception as e:
+            st.error(f"Error saving penalties: {e}")
 
 # Active Meetings
-st.markdown("<h3 style='margin-bottom: 0.2rem;'>Active Meetings</h3>", unsafe_allow_html=True)
+st.subheader("Active Meetings")
 if "active_meetings_touched" not in st.session_state:
     st.session_state["active_meetings_touched"] = False
 
@@ -440,42 +489,6 @@ if st.button("💾 Save Active Meetings", key="save_active_meetings"):
         st.success("Active meetings saved!")
     except Exception as e:
         st.error(f"Error saving active meetings: {e}")
-
-# Penalties
-st.subheader("Penalties")
-if "penalties" not in st.session_state:
-    st.session_state["penalties"] = config.get("penalties", {}).copy()
-
-penalty_items = list(st.session_state["penalties"].items())
-penalty_cols = st.columns([4, 2, 1])
-penalty_cols[0].markdown("**Penalty Name**")
-penalty_cols[1].markdown("**Value**")
-penalty_cols[2].markdown("")
-
-for i, (pen_name, pen_val) in enumerate(penalty_items):
-    cols = st.columns([4, 2, 1])
-    cols[0].markdown(f"<div style='line-height:100px; vertical-align: middle;'>{pen_name}</div>", unsafe_allow_html=True)
-    value = cols[1].number_input("", value=pen_val, key=f"penalty_value_{i}")
-    penalty_items[i] = (pen_name, value)
-
-st.session_state["penalties"] = {k: v for k, v in penalty_items if k}
-
-if st.session_state["penalties"] != st.session_state["original_values"]["penalties"]:
-    st.session_state["unsaved_changes"]["penalties"] = True
-    st.warning("⚠️ You have unsaved changes in Penalties")
-else:
-    st.session_state["unsaved_changes"]["penalties"] = False
-
-if st.button("💾 Save Penalties", key="save_penalties"):
-    try:
-        config["penalties"] = st.session_state["penalties"]
-        with open(CONFIG_PATH, "w") as f:
-            yaml.safe_dump(config, f)
-        st.session_state["original_values"]["penalties"] = st.session_state["penalties"].copy()
-        st.session_state["unsaved_changes"]["penalties"] = False
-        st.success("Penalties saved!")
-    except Exception as e:
-        st.error(f"Error saving penalties: {e}")
 
 # Run Scheduler
 st.header("Run Scheduler")
