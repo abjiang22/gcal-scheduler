@@ -1,22 +1,32 @@
-import json
 import argparse
-from calendar_service import authenticate_google, list_calendars, list_events, get_or_create_calendar, create_event
-from models import Member, Meeting
-from utils import add_member, list_members, remove_member, add_meeting, list_meetings, remove_meeting, add_potential_time, list_potential_times, remove_potential_time, set_potential_times_calendar, get_potential_times_calendar, fetch_potential_times_from_calendar, set_timezone, get_timezone, load_json, generate_possible_slots, fetch_member_conflicts, overlaps
+import json
+import os
 import re
+import uuid
+from collections import defaultdict
 from datetime import datetime
 import pytz
-from pysat.formula import IDPool
-from pysat.solvers import Glucose3
-from pysat.examples.rc2 import RC2
-from pysat.formula import WCNF
-from pysat.card import CardEnc
 import yaml
-import uuid
-import os
-from collections import defaultdict
+from pysat.card import CardEnc
+from pysat.examples.rc2 import RC2
+from pysat.formula import IDPool, WCNF
+from pysat.solvers import Glucose3
+
+from calendar_service import (
+    authenticate_google, create_event, get_or_create_calendar, 
+    list_calendars, list_events
+)
+from models import Member, Meeting
+from utils import (
+    add_member, add_meeting, add_potential_time, fetch_member_conflicts,
+    fetch_potential_times_from_calendar, generate_possible_slots, get_potential_times_calendar,
+    get_timezone, list_meetings, list_members, list_potential_times, load_json,
+    overlaps, remove_meeting, remove_member, remove_potential_time,
+    set_potential_times_calendar, set_timezone
+)
 
 def main():
+    """Main entry point for the gcal-scheduler CLI application."""
     # Configure pysat data directory
     import pysat
     pysat.params['data_dirs'] = os.path.join(os.getcwd(), 'pysatData')
@@ -24,13 +34,13 @@ def main():
     parser = argparse.ArgumentParser(description='gcal-scheduler CLI')
     subparsers = parser.add_subparsers(dest='command')
 
-    # Google Calendar commands
+    # ===== Google Calendar Commands =====
     parser_auth = subparsers.add_parser('auth', help='Authenticate with Google Calendar')
     parser_list_cal = subparsers.add_parser('list-calendars', help='List all calendars')
     parser_list_events = subparsers.add_parser('list-events', help='List events for a calendar')
     parser_list_events.add_argument('calendar_id', type=str, help='Calendar ID')
 
-    # Member management
+    # ===== Member Management Commands =====
     parser_add_member = subparsers.add_parser('add-member', help='Add a member')
     parser_add_member.add_argument('name', type=str, help='Member name')
     parser_add_member.add_argument('calendar_id', type=str, help='Google Calendar ID')
@@ -38,7 +48,7 @@ def main():
     parser_remove_member = subparsers.add_parser('remove-member', help='Remove a member')
     parser_remove_member.add_argument('member_id', type=str, help='Member ID')
 
-    # Meeting management
+    # ===== Meeting Management Commands =====
     parser_add_meeting = subparsers.add_parser('add-meeting', help='Add a meeting')
     parser_add_meeting.add_argument('name', type=str, help='Meeting name')
     parser_add_meeting.add_argument('member_ids', nargs='+', help='Member IDs')
@@ -47,7 +57,7 @@ def main():
     parser_remove_meeting = subparsers.add_parser('remove-meeting', help='Remove a meeting')
     parser_remove_meeting.add_argument('meeting_id', type=str, help='Meeting ID')
 
-    # Potential meeting time management
+    # ===== Potential Meeting Time Management =====
     parser_add_time = subparsers.add_parser('add-potential-time', help='Add a potential meeting time')
     parser_add_time.add_argument('start_time', type=str, help='Start time (ISO format)')
     parser_add_time.add_argument('end_time', type=str, help='End time (ISO format)')
@@ -55,7 +65,7 @@ def main():
     parser_remove_time = subparsers.add_parser('remove-potential-time', help='Remove a potential meeting time')
     parser_remove_time.add_argument('time_id', type=str, help='Potential time ID')
 
-    # Potential meeting times calendar management
+    # ===== Calendar Configuration Commands =====
     parser_set_cal = subparsers.add_parser('set-potential-times-calendar', help='Set the potential meeting times calendar ID')
     parser_set_cal.add_argument('calendar_id', type=str, help='Calendar ID')
     parser_show_cal = subparsers.add_parser('show-potential-times-calendar', help='Show the current potential meeting times calendar ID')
@@ -63,12 +73,12 @@ def main():
     parser_fetch_times.add_argument('week_start', type=str, help='Week start (ISO format)')
     parser_fetch_times.add_argument('week_end', type=str, help='Week end (ISO format)')
 
-    # Timezone management
+    # ===== Timezone Management =====
     parser_set_tz = subparsers.add_parser('set-timezone', help='Set the default timezone (e.g., America/New_York)')
     parser_set_tz.add_argument('timezone', type=str, help='Timezone name')
     parser_show_tz = subparsers.add_parser('show-timezone', help='Show the current default timezone')
 
-    # New command
+    # ===== Scheduling Commands =====
     parser_schedule = subparsers.add_parser('schedule-meetings', help='Schedule meetings for the given week')
     parser_schedule.add_argument('week_start', type=str, help='Week start (YYYY-MM-DD or ISO)')
     parser_schedule.add_argument('week_end', type=str, help='Week end (YYYY-MM-DD or ISO)')
@@ -77,21 +87,18 @@ def main():
     parser_schedule.add_argument('--penalty-required-member-absence', type=int, default=None, help='Penalty for required member absence (overrides config)')
     parser_schedule.add_argument('--penalty-key-meeting-absence', type=int, default=None, help='Penalty for key meeting absence (overrides config)')
 
-    # Load config command
+    # ===== Configuration Commands =====
     parser_load_config = subparsers.add_parser('load-config', help='Load members, meetings, and potential times calendar from a YAML config file')
     parser_load_config.add_argument('config_file', type=str, help='YAML config file path')
-
-    # New command
     parser_add_constraint = subparsers.add_parser('add-constraint', help='Add a fixed constraint that mandates members must attend a meeting')
     parser_add_constraint.add_argument('meeting', type=str, help='Meeting name')
     parser_add_constraint.add_argument('members', nargs='+', help='Member name(s)')
-
-    # New command
     parser_set_active_meetings = subparsers.add_parser('set-active-meetings', help='Set the list of active meetings to schedule')
     parser_set_active_meetings.add_argument('meeting_names', nargs='+', help='Names of meetings to schedule')
 
     args = parser.parse_args()
 
+    # ===== Google Calendar Commands =====
     if args.command in ['auth', 'list-calendars', 'list-events']:
         service = authenticate_google()
         if args.command == 'list-calendars':
@@ -100,30 +107,40 @@ def main():
             list_events(service, args.calendar_id)
         else:
             print('Authenticated with Google Calendar.')
+    
+    # ===== Member Management Commands =====
     elif args.command == 'add-member':
         add_member(args.name, args.calendar_id)
     elif args.command == 'list-members':
         list_members()
     elif args.command == 'remove-member':
         remove_member(args.member_id)
+    
+    # ===== Meeting Management Commands =====
     elif args.command == 'add-meeting':
         add_meeting(args.name, args.member_ids, args.duration)
     elif args.command == 'list-meetings':
         list_meetings()
     elif args.command == 'remove-meeting':
         remove_meeting(args.meeting_id)
+    
+    # ===== Potential Time Management Commands =====
     elif args.command == 'add-potential-time':
         add_potential_time(args.start_time, args.end_time)
     elif args.command == 'list-potential-times':
         list_potential_times()
     elif args.command == 'remove-potential-time':
         remove_potential_time(args.time_id)
+    
+    # ===== Calendar Configuration Commands =====
     elif args.command == 'set-potential-times-calendar':
         set_potential_times_calendar(args.calendar_id)
     elif args.command == 'show-potential-times-calendar':
         cal_id = get_potential_times_calendar()
         if cal_id:
             print(f"Potential meeting times calendar ID: {cal_id}")
+    
+    # ===== Timezone Management Commands =====
     elif args.command == 'set-timezone':
         set_timezone(args.timezone)
     elif args.command == 'show-timezone':

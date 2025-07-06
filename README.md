@@ -1,17 +1,16 @@
 # G-Cal Meeting Scheduler
 
-A powerful Python application that intelligently schedules meetings across your organization using Google Calendar integration and advanced constraint solving.
+Intelligently schedule Google Calendar meetings across your organization.
 
 ## 🚀 Features
 
-- **Smart Scheduling**: Uses MaxSAT solver to find optimal meeting schedules while minimizing conflicts
-- **Google Calendar Integration**: Seamless connection to Google Calendar API for real-time availability
+- **Google Calendar Integration**: Connects to Google Calendar API for real-time availability
+- **Smart Scheduling**: Uses MaxSAT solver to find optimal meeting schedules
 - **Conflict Resolution**: Automatically detects and reports scheduling conflicts
 - **Flexible Configuration**: Support for YAML configuration files and command-line interface
-- **Web UI**: Modern Streamlit-based interface for easy configuration and scheduling
-- **Advanced Constraints**: Support for key attendees, required members, and priority meetings
-- **Location Support**: Preserves meeting locations from potential time slots
-- **Calendar Export**: Creates new Google Calendars with scheduled meetings and conflict information
+- **Web UI**: Streamlit UI interface for easy configuration and scheduling
+- **Advanced Constraints**: Support for required attendees and priority meetings
+- **Calendar Export**: Generates a new Google Calendar with scheduled meetings
 
 ## 📋 Table of Contents
 
@@ -55,13 +54,8 @@ A powerful Python application that intelligently schedules meetings across your 
 
 - Python 3.7 or higher
 - Google Calendar API access
-- Internet connection for Google Calendar integration
 
 ### Dependencies
-
-```bash
-pip install -r requirements.txt
-```
 
 **Key Dependencies:**
 - `google-api-python-client`: Google Calendar API integration
@@ -98,28 +92,28 @@ meetings:
   - name: Design Discussion
     members: [Bob Smith, Carol Davis]
 
-# Key Attendees (Strongly preferred but not required)
+# Key Attendees (Priority members, not required)
 key_attendees:
   - meeting: Weekly Standup
     members: [Alice Johnson]
   - meeting: Project Review
     members: [Bob Smith]
 
-# Priority Meetings (Higher penalty for absences)
+# Priority Meetings (Meetings with higher penalty for absences, not required)
 key_meetings:
   - Weekly Standup
   - Project Review
 
-# Active Meetings (Only these will be scheduled)
+# Active Meetings (Only these meetings will be scheduled)
 active_meetings:
   - Weekly Standup
   - Project Review
 
 # Penalty Configuration
 penalties:
-  key_attendee_absence: 100    # High penalty for key attendee missing
+  key_attendee_absence: 100    # Penalty for key attendee missing from their designated meeting
+  key_meeting_absence: 5       # Penalty for any member missing a priority meeting
   required_member_absence: 1   # Standard penalty for any member missing
-  key_meeting_absence: 5       # Penalty for missing priority meetings
 ```
 
 ### Load Configuration
@@ -140,13 +134,13 @@ python main.py list-calendars
 #### Schedule Meetings
 ```bash
 # Basic scheduling
-python main.py schedule-meetings 2024-01-15 2024-01-19
+python main.py schedule-meetings 2024-11-21 2024-11-24
 
-# Save to new Google Calendar
-python main.py schedule-meetings 2024-01-15 2024-01-19 --save-calendar "Weekly Schedule"
+# Save to new Google Calendar with title "Weekly Schedule"
+python main.py schedule-meetings 2024-11-21 2024-11-24 --save-calendar "Weekly Schedule"
 
 # Custom penalties
-python main.py schedule-meetings 2024-01-15 2024-01-19 \
+python main.py schedule-meetings 2024-11-21 2024-11-24 \
   --save-calendar "Weekly Schedule" \
   --penalty-key-attendee-absence 100 \
   --penalty-required-member-absence 1 \
@@ -156,7 +150,7 @@ python main.py schedule-meetings 2024-01-15 2024-01-19 \
 #### Manage Members
 ```bash
 # Add member
-python main.py add-member "Alice Johnson" alice.johnson@company.com
+python main.py add-member "Alice Johnson" alice.johnson@group.calendar.google.com
 
 # List members
 python main.py list-members
@@ -165,7 +159,7 @@ python main.py list-members
 #### Manage Meetings
 ```bash
 # Add meeting
-python main.py add-meeting "Weekly Standup" <MEMBER_ID_1> <MEMBER_ID_2>
+python main.py add-meeting "Weekly Standup" <MEMBER_NAME_1> <MEMBER_NAME_2> ...
 
 # List meetings
 python main.py list-meetings
@@ -192,17 +186,16 @@ streamlit run ui.py
 ```
 
 **Features of the Web Interface:**
-- Visual configuration editor
-- Real-time validation
 - Google Calendar authentication
-- Interactive scheduling
+- Configuration editor
+- Real-time validation
+- Scheduling
 - Conflict visualization
-- Success notifications
 
 ## 🌟 Advanced Features
 
 ### Key Attendees
-Specify essential meeting participants. The scheduler will strongly prefer their attendance but won't fail if they're unavailable.
+Specify essential participants for meetings. The scheduler will strongly prefer their attendance in a specified meeting but won't fail if they're unavailable.
 
 ```yaml
 key_attendees:
@@ -210,7 +203,7 @@ key_attendees:
     members: [Alice Johnson, Bob Smith]
 ```
 
-### Priority Meetings
+### Key Meetings
 Mark certain meetings as high-priority. Absences from these meetings incur higher penalties.
 
 ```yaml
@@ -221,9 +214,8 @@ key_meetings:
 
 ### Conflict Resolution
 The scheduler automatically:
-- Reports member absences
 - Provides attendance percentages
-- Creates detailed conflict reports
+- Reports member absences
 
 ### Location Support
 Meeting locations from potential time slots are preserved in the final schedule.
@@ -264,7 +256,6 @@ Within the same potential time window, no two meetings can be scheduled in overl
 1. Verify potential times calendar has events
 2. Check member calendar IDs are accessible
 3. Ensure date range is valid
-4. Review penalty configuration
 
 ### Common Error Messages
 
@@ -285,7 +276,7 @@ Within the same potential time window, no two meetings can be scheduled in overl
 | `schedule-meetings` | Schedule meetings for date range | `python main.py schedule-meetings 2024-01-15 2024-01-19` |
 | `load-config` | Load configuration from YAML | `python main.py load-config config.yaml` |
 | `add-member` | Add organization member | `python main.py add-member "Alice" alice@company.com` |
-| `add-meeting` | Add meeting definition | `python main.py add-meeting "Standup" <MEMBER_IDS>` |
+| `add-meeting` | Add meeting | `python main.py add-meeting "Standup" <MEMBER_IDS>` |
 
 ### Configuration Options
 
@@ -296,19 +287,7 @@ Within the same potential time window, no two meetings can be scheduled in overl
 | `--penalty-required-member-absence` | int | Penalty for any member missing | 1 |
 | `--penalty-key-meeting-absence` | int | Penalty for absences in priority meeting | 5 |
 
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
 ## 🆘 Support
 
 For issues and questions:
 Email alexjiang8715@gmail.com
-
----
-
-**Happy Scheduling! 🎉**

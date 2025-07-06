@@ -4,3 +4,4 @@ token.pickle
 __pycache__/
 config.yaml
 misc
+credentials.json

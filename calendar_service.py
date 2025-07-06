@@ -1,15 +1,17 @@
+import os
+import pickle
+from datetime import datetime, timedelta
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
-import pickle
-import os
-from datetime import datetime, timedelta
 
+# Google Calendar API configuration
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 TOKEN_PATH = 'token.pickle'
 CREDENTIALS_PATH = 'credentials.json'
 
 def authenticate_google():
+    """Authenticate with Google Calendar API and return the service object."""
     creds = None
     if os.path.exists(TOKEN_PATH):
         with open(TOKEN_PATH, 'rb') as token:
@@ -26,11 +28,13 @@ def authenticate_google():
     return service
 
 def list_calendars(service):
+    """List all calendars accessible to the authenticated user."""
     calendars = service.calendarList().list().execute()
     for cal in calendars.get('items', []):
         print(f"{cal['summary']} (ID: {cal['id']})")
 
 def list_events(service, calendar_id, days=7):
+    """List events from a calendar for the specified number of days."""
     now = datetime.utcnow().isoformat() + 'Z'
     future = (datetime.utcnow() + timedelta(days=days)).isoformat() + 'Z'
     events_result = service.events().list(calendarId=calendar_id, timeMin=now, timeMax=future, singleEvents=True, orderBy='startTime').execute()
@@ -42,6 +46,7 @@ def list_events(service, calendar_id, days=7):
         print(f"{start}: {event['summary']}")
 
 def get_or_create_calendar(service, calendar_name):
+    """Get an existing calendar by name or create a new one."""
     # Check if calendar exists
     calendars = service.calendarList().list().execute()
     for cal in calendars.get('items', []):
@@ -56,6 +61,7 @@ def get_or_create_calendar(service, calendar_name):
     return created['id']
 
 def create_event(service, calendar_id, summary, start_time, end_time, attendees=None, description=None, location=None):
+    """Create a new event in the specified calendar."""
     event = {
         'summary': summary,
         'start': {'dateTime': start_time, 'timeZone': 'UTC'},

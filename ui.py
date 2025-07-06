@@ -1,12 +1,13 @@
+import os
+import subprocess
+import sys
+from datetime import datetime
+import pandas as pd
 import streamlit as st
 import yaml
-import os
 from calendar_service import authenticate_google
-import datetime
-import subprocess
-import pandas as pd
-import sys
 
+# Configuration
 CONFIG_PATH = "config.yaml"
 
 # Load config or defaults
