@@ -1,7 +1,7 @@
 import os
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, date, timedelta
 import pandas as pd
 import streamlit as st
 import yaml
@@ -322,34 +322,32 @@ with st.expander("Meeting Details", expanded=True):
             deleted_meetings = original_meeting_names - current_meeting_names
             
             # Handle cascading updates when meeting names change
-            for old_meeting in st.session_state["original_values"]["meetings"]:
+            # Match meetings by their position in the list for more reliable updates
+            original_meetings = st.session_state["original_values"]["meetings"]
+            current_meetings = [m for m in st.session_state["meetings"] if m["name"]]
+            
+            # Find meetings that have changed names by comparing positions
+            for i, (old_meeting, new_meeting) in enumerate(zip(original_meetings, current_meetings)):
                 old_name = old_meeting["name"]
-                old_members = set(old_meeting.get("members", []))
+                new_name = new_meeting["name"]
                 
-                for new_meeting in st.session_state["meetings"]:
-                    new_name = new_meeting.get("name")
-                    new_members = set(new_meeting.get("members", []))
+                if old_name != new_name:
+                    # Update all references to this meeting name in the config
+                    for ka in config.get("key_attendees", []):
+                        if ka.get("meeting") == old_name:
+                            ka["meeting"] = new_name
                     
-                    # Match by members (using sets to ignore order)
-                    if new_name and old_members == new_members:
-                        if old_name != new_name:
-                            # Update all references to this meeting name in the config
-                            for ka in config.get("key_attendees", []):
-                                if ka.get("meeting") == old_name:
-                                    ka["meeting"] = new_name
-                            
-                            # Update key_meetings list - replace old_name with new_name
-                            if "key_meetings" not in config:
-                                config["key_meetings"] = []
-                            if old_name in config["key_meetings"]:
-                                config["key_meetings"] = [new_name if m == old_name else m for m in config["key_meetings"]]
-                            
-                            # Update active_meetings list - replace old_name with new_name
-                            if "active_meetings" not in config:
-                                config["active_meetings"] = []
-                            if old_name in config["active_meetings"]:
-                                config["active_meetings"] = [new_name if m == old_name else m for m in config["active_meetings"]]
-                            break
+                    # Update key_meetings list - replace old_name with new_name
+                    if "key_meetings" not in config:
+                        config["key_meetings"] = []
+                    if old_name in config["key_meetings"]:
+                        config["key_meetings"] = [new_name if m == old_name else m for m in config["key_meetings"]]
+                    
+                    # Update active_meetings list - replace old_name with new_name
+                    if "active_meetings" not in config:
+                        config["active_meetings"] = []
+                    if old_name in config["active_meetings"]:
+                        config["active_meetings"] = [new_name if m == old_name else m for m in config["active_meetings"]]
             
             # Handle DELETE cascades for removed meetings
             for deleted_meeting in deleted_meetings:
@@ -541,6 +539,10 @@ st.subheader("Active Meetings")
 config_active_meetings = config.get("active_meetings", [])
 valid_active_meetings = [m for m in config_active_meetings if m in meeting_names]
 
+# Initialize session state if not exists
+if "active_meetings" not in st.session_state:
+    st.session_state["active_meetings"] = valid_active_meetings
+
 current_active_meetings = st.multiselect(
     "",
     meeting_names,
@@ -548,8 +550,10 @@ current_active_meetings = st.multiselect(
     key="active_meetings_multiselect"
 )
 
+# Update session state with current selection
+st.session_state["active_meetings"] = current_active_meetings
+
 if current_active_meetings != valid_active_meetings:
-    st.session_state["active_meetings"] = current_active_meetings
     st.session_state["unsaved_changes"]["active_meetings"] = True
     st.warning("⚠️ You have unsaved changes in Active Meetings")
 else:
@@ -557,10 +561,10 @@ else:
 
 if st.button("💾 Save Active Meetings", key="save_active_meetings"):
     try:
-        config["active_meetings"] = st.session_state["active_meetings"]
+        config["active_meetings"] = current_active_meetings
         with open(CONFIG_PATH, "w") as f:
             yaml.safe_dump(config, f)
-        st.session_state["original_values"]["active_meetings"] = st.session_state["active_meetings"].copy()
+        st.session_state["original_values"]["active_meetings"] = current_active_meetings.copy()
         st.session_state["unsaved_changes"]["active_meetings"] = False
         st.success("Active meetings saved!")
     except Exception as e:
@@ -569,9 +573,9 @@ if st.button("💾 Save Active Meetings", key="save_active_meetings"):
 # Run Scheduler
 st.header("Run Scheduler")
 
-today = datetime.date.today()
+today = date.today()
 week_start = st.date_input("Week Start", today)
-week_end = st.date_input("Week End", today + datetime.timedelta(days=6))
+week_end = st.date_input("Week End", today + timedelta(days=6))
 calendar_name = st.text_input("Schedule Calendar Name", "")
 
 if st.button("Run Scheduler"):
